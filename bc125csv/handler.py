@@ -6,7 +6,9 @@ import argparse
 
 from bc125csv.scanner import (
     DeviceLookup,
+    DeviceLookupPyUSB,
     Scanner,
+    ScannerPyUSB,
     ScannerException, 
     SUPPORTED_MODELS,
     VirtualScanner,
@@ -198,23 +200,13 @@ class Handler(object):
             # Look for a compatible device
             self.print_verbose("Searching for compatible devices...")
 
-            lookup = DeviceLookup()
+            lookup = DeviceLookupPyUSB()
             device = lookup.get_device()
 
             if not device:
                 sys.exit("No compatible scanner was found.")
 
-            if not lookup.is_tty(device):
-                sys.exit("Found a compatible scanner, but no serial tty.\n"
-                    "Please run the following commands with root privileges:\n"
-                    "modprobe usbserial vendor=0x{0} product=0x{1}"
-                    .format(device.get("ID_VENDOR_ID"), device.get("ID_MODEL_ID")))
-
-            # Make sure device is writable by current user
-            if not os.access(device.get("DEVNAME", ""), os.W_OK):
-                sys.exit("Found a compatible scanner, but can not write to it.")
-
-            scanner = Scanner(device.get("DEVNAME"), self.params.rate)
+            scanner = ScannerPyUSB(device)
 
             try:
                 model = scanner.get_model()

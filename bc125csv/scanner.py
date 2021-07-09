@@ -3,6 +3,7 @@ from __future__ import division
 
 import re
 import sys
+import usb
 
 try:
     import pyudev
@@ -162,7 +163,7 @@ class Scanner(serial.Serial, object):
         # Try to match result
         match = self.RE_CIN.match(result)
         if not match:
-            raise ScannerException("Unexpected data for channel %d." %  index)
+            raise ScannerException("Unexpected data for channel %d: %s" %  (index, result))
         data = match.groupdict()
 
         # Return on empty channel
@@ -293,3 +294,67 @@ class DeviceLookup(object): # pragma: no cover
         for device in self.context.list_devices():
             if self.is_scanner(device):
                 return device
+
+
+class DeviceLookupPyUSB(object): # pragma: no cover
+    """
+    Scan USB devices using the pyusb library and look for a compatible scanner.
+    """
+
+    def get_device(self):
+        """Find compatible scanner and return pyusb Device."""
+        devs = usb.core.find(find_all=True)
+        for dev in devs:
+            vendor = dev.idVendor
+            product = usb.util.get_string(dev, dev.iProduct)
+            if vendor == 0x1965 and product in SUPPORTED_MODELS:
+                return dev
+
+
+class ScannerPyUSB(Scanner):
+    """
+    Wrap around pyusb Device to provide compatible readline and helper methods.
+    """
+
+    def __init__(self, dev):
+        dev.set_configuration()
+        cfg = dev.get_active_configuration()
+        # TODO: This hard-coded cfg is only tested for BC125AT.
+        intf = cfg[(1,0)]
+
+        self.ep_out = usb.util.find_descriptor(
+            intf,
+            custom_match = \
+            lambda e: \
+                usb.util.endpoint_direction(e.bEndpointAddress) == \
+                usb.util.ENDPOINT_OUT)
+
+        if self.ep_out is None:
+            raise ScannerException("USB interface has no output endpoint.")
+
+        self.ep_in = usb.util.find_descriptor(
+            intf,
+            custom_match = \
+            lambda e: \
+                usb.util.endpoint_direction(e.bEndpointAddress) == \
+                usb.util.ENDPOINT_IN)
+
+        if self.ep_in is None:
+            raise ScannerException("USB interface has no input endpoint.")
+
+    def write(self, cmd):
+        self.ep_out.write(cmd)
+
+    def flush(self):
+        pass
+
+    def readlinecr(self): # pragma: no cover
+        MAX_READ = 10000
+        line = ""
+        while True:
+            buf = self.ep_in.read(MAX_READ)
+            line += buf.tobytes().decode()
+            if line[-1] == "\r":
+                break
+        line = line[:-1]
+        return line
