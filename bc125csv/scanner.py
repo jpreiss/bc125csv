@@ -3,6 +3,8 @@ from __future__ import division
 
 import re
 import sys
+import warnings
+
 import usb
 
 try:
@@ -318,9 +320,16 @@ class ScannerPyUSB(Scanner):
 
     def __init__(self, dev):
         dev.set_configuration()
-        cfg = dev.get_active_configuration()
-        # TODO: This hard-coded cfg is only tested for BC125AT.
-        intf = cfg[(1,0)]
+        config = dev.get_active_configuration()
+        interfaces = [intf for intf in config if intf.bInterfaceClass == 0xA]
+        if len(interfaces) == 0:
+            raise ScannerException("No USB interface of class CDC-Data found.")
+        if len(interfaces) > 1:
+            warnings.warn(
+                "Expected exactly one USB interface of class CDC-Data, "
+                "but found more. Selecting first."
+            )
+        intf = interfaces[0]
 
         self.ep_out = usb.util.find_descriptor(
             intf,
@@ -349,6 +358,7 @@ class ScannerPyUSB(Scanner):
         pass
 
     def readlinecr(self): # pragma: no cover
+        # TODO: Get the correct buffer size from the USB descriptor.
         MAX_READ = 10000
         line = ""
         while True:
